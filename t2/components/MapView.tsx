@@ -5,6 +5,7 @@ import { EditControl } from "react-leaflet-draw"
 import L, { type LatLngExpression } from "leaflet"
 import { useMode } from "../context/mode-context"
 import { toast } from "sonner"
+import "../styles/MapView.css"
 
 // Custom marker icons
 const startIcon = L.divIcon({
@@ -32,6 +33,14 @@ const endIcon = L.divIcon({
   popupAnchor: [0, -35],
 })
 
+// Agent icon
+const agentIcon = L.divIcon({
+  className: "agent-icon",
+  html: `<div class="agent-dot"></div>`,
+  iconSize: [10, 10],
+  iconAnchor: [5, 5],
+})
+
 function sampleRoutePoints(routeCoords: [number, number][], interval = 5): [number, number][] {
   if (!routeCoords || routeCoords.length === 0) return []
   const sampled: [number, number][] = []
@@ -56,6 +65,12 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
   const [densityPoints, setDensityPoints] = useState<any[]>([])
   const { mode, markerMode, setMarkerMode, isDrawingObstacle } = useMode()
   const [routeAnimation, setRouteAnimation] = useState(0)
+  
+  // Agent animation states
+  const [agents, setAgents] = useState([])
+  const [isAnimating, setIsAnimating] = useState(false)
+  const animationRef = useRef(null)
+  const routePointsRef = useRef([])
 
   // Handle map clicks based on current marker mode
   const map = useMapEvents({
@@ -115,6 +130,109 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
       ([lng, lat]: [number, number]) => [lat, lng] as LatLngExpression,
     )
   }
+
+  // Function to initialize agents
+  const initializeAgents = (count = 5) => {
+    // Get full route points for animation
+    const routePoints = getRouteLatLngs()
+    routePointsRef.current = routePoints
+    
+    if (routePoints.length < 2) return
+    
+    // Create initial agents
+    const newAgents = Array(count).fill(0).map((_, i) => ({
+      id: `agent-${i}`,
+      position: routePoints[0],
+      progress: Math.random() * 5, // Stagger initial positions slightly
+      speed: 0.2 + Math.random() * 0.3, // Different speeds for each agent
+      color: ["#3388ff", "#ff3300", "#33cc33", "#ffcc00", "#cc33ff"][i % 5],
+    }))
+    
+    setAgents(newAgents)
+    return newAgents
+  }
+
+  // Animation function to move agents along route
+  const animateAgents = (timestamp) => {
+    const routePoints = routePointsRef.current
+    
+    if (!isAnimating || routePoints.length < 2) {
+      animationRef.current = null
+      return
+    }
+    
+    setAgents(currentAgents => {
+      return currentAgents.map(agent => {
+        // Update agent progress along route
+        let newProgress = agent.progress + agent.speed
+        
+        // Calculate position on the route
+        const segmentIndex = Math.floor(newProgress)
+        const segmentProgress = newProgress - segmentIndex
+        
+        // Reset if reached end of route
+        if (segmentIndex >= routePoints.length - 1) {
+          newProgress = 0
+          return {
+            ...agent,
+            position: routePoints[0],
+            progress: newProgress
+          }
+        }
+        
+        // Interpolate position between route points
+        const currentPoint = routePoints[segmentIndex]
+        const nextPoint = routePoints[segmentIndex + 1]
+        
+        const position = [
+          currentPoint[0] + (nextPoint[0] - currentPoint[0]) * segmentProgress,
+          currentPoint[1] + (nextPoint[1] - currentPoint[1]) * segmentProgress
+        ]
+        
+        return {
+          ...agent,
+          position,
+          progress: newProgress
+        }
+      })
+    })
+    
+    animationRef.current = requestAnimationFrame(animateAgents)
+  }
+
+  // Start/stop animation
+  useEffect(() => {
+    if (routeData && routeData.features && routeData.features[0] && mode === "crowd") {
+      const initialAgents = initializeAgents(5)
+      if (initialAgents) {
+        setIsAnimating(true)
+      }
+    } else {
+      setIsAnimating(false)
+      setAgents([])
+    }
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+        animationRef.current = null
+      }
+    }
+  }, [routeData, mode])
+  
+  // Handle animation frame
+  useEffect(() => {
+    if (isAnimating && agents.length > 0 && !animationRef.current) {
+      animationRef.current = requestAnimationFrame(animateAgents)
+    }
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+        animationRef.current = null
+      }
+    }
+  }, [isAnimating, agents])
 
   // Fetch traffic density data when route changes
   useEffect(() => {
@@ -222,31 +340,8 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
           </LayerGroup>
         )
       case "crowd":
-        return (
-          <LayerGroup>
-            {densityPoints.map((pt, idx) => (
-              <Circle
-                key={`crowd-${idx}`}
-                center={[pt.lat, pt.lon]}
-                radius={Math.random() * 100 + 50}
-                pathOptions={{
-                  color: "transparent",
-                  fillColor: "#3366ff",
-                  fillOpacity: Math.random() * 0.5 + 0.2,
-                }}
-              >
-                <Popup>
-                  <div className="text-black">
-                    <b>Crowd Density:</b> {Math.floor(Math.random() * 100)} people
-                    <br />
-                    <b>Movement Speed:</b> {Math.floor(Math.random() * 5)} km/h
-                    <br />
-                  </div>
-                </Popup>
-              </Circle>
-            ))}
-          </LayerGroup>
-        )
+        // No heatmap elements shown in crowd mode - only agents will be shown
+        return null
       default: // evacuate mode
         return null
     }
@@ -337,6 +432,28 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
           className="route-path"
         />
       )}
+
+      {/* Render animated agents */}
+      {agents.map(agent => (
+        <Marker
+          key={agent.id}
+          position={agent.position}
+          icon={L.divIcon({
+            className: "agent-icon",
+            html: `<div class="agent-dot" style="background-color: ${agent.color}"></div>`,
+            iconSize: [10, 10],
+            iconAnchor: [5, 5],
+          })}
+        >
+          <Popup>
+            <div className="text-black">
+              <b>Agent {agent.id}</b>
+              <br />
+              Speed: {(agent.speed * 30).toFixed(1)} km/h
+            </div>
+          </Popup>
+        </Marker>
+      ))}
 
       {renderModeSpecificElements()}
 

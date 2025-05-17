@@ -1,0 +1,25 @@
+.agent-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #3388ff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  opacity: 0.9;
+  transition: transform 0.2s ease-out;
+}
+
+.agent-dot:hover {
+  transform: scale(1.5);
+  opacity: 1;
+  z-index: 1000 !important;
+}
+
+/* Add some glow effect on hover */
+.agent-icon:hover .agent-dot {
+  box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.7);
+}
+
+/* Improve route path styling */
+.route-path {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.4));
+}
