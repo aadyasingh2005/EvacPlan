@@ -60,24 +60,6 @@ function sampleRoutePoints(routeCoords: [number, number][], interval = 5): [numb
   return sampled
 }
 
-// Calculate crowd density score (used to determine number of agents)
-function calculateCrowdDensity(point) {
-  if (!point) return 5; // Default value if no data
-  
-  // Use currentSpeed as inverse indicator of crowd density
-  // Lower speed = higher density
-  if (point.currentSpeed === null) return 5;
-  
-  // Convert speed to density score (higher density at lower speeds)
-  if (point.currentSpeed < 10) {
-    return Math.floor(Math.random() * 5) + 15; // Heavy crowd: 15-20 agents
-  } else if (point.currentSpeed < 20) {
-    return Math.floor(Math.random() * 5) + 8;  // Medium crowd: 8-12 agents
-  } else {
-    return Math.floor(Math.random() * 3) + 3;  // Light crowd: 3-5 agents
-  }
-}
-
 const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, setStartPoint, setEndPoint, mapRef }) => {
   const drawnItemsRef = useRef<L.FeatureGroup>(null)
   const [densityPoints, setDensityPoints] = useState<any[]>([])
@@ -89,8 +71,6 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
   const [isAnimating, setIsAnimating] = useState(false)
   const animationRef = useRef(null)
   const routePointsRef = useRef([])
-  const [routeDuration, setRouteDuration] = useState(0)
-  const [routeDistance, setRouteDistance] = useState(0)
 
   // Handle map clicks based on current marker mode
   const map = useMapEvents({
@@ -144,85 +124,70 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
 
   const toLatLngs = (coords: [number, number][]) => coords.map(([lat, lng]) => [lat, lng] as LatLngExpression)
 
-  const getRouteLatLngs = () => {
-    if (!routeData || !routeData.features || !routeData.features[0]) return []
-    return routeData.features[0].geometry.coordinates.map(
+  const getRouteLatLngs = (featureIndex = 0) => {
+    if (!routeData || !routeData.features || !routeData.features[featureIndex]) return []
+    return routeData.features[featureIndex].geometry.coordinates.map(
       ([lng, lat]: [number, number]) => [lat, lng] as LatLngExpression,
     )
   }
 
-  // Extract route information
-  useEffect(() => {
-    if (routeData && routeData.features && routeData.features[0]) {
-      const properties = routeData.features[0].properties;
-      const summary = properties.summary || {};
-      setRouteDuration(summary.duration || 0);
-      setRouteDistance(summary.distance || 0);
-      console.log(`Route properties loaded: Duration ${summary.duration}s, Distance ${summary.distance}m`);
-    }
-  }, [routeData]);
+  const getAllRouteLatLngs = () => {
+    if (!routeData || !routeData.features) return []
+    return routeData.features.map(feature => 
+      feature.geometry.coordinates.map(
+        ([lng, lat]: [number, number]) => [lat, lng] as LatLngExpression
+      )
+    )
+  }
 
-  // Function to initialize agents based on crowd density
-  const initializeAgents = (startLocationDensity = null) => {
-    // Get full route points for animation
-    const routePoints = getRouteLatLngs()
-    routePointsRef.current = routePoints
+  // Function to initialize agents
+  const initializeAgents = (count = 40) => {
+    // Get all route points for animation
+    const allRoutes = getAllRouteLatLngs()
+    routePointsRef.current = allRoutes
     
-    if (routePoints.length < 2) return
+    if (allRoutes.length === 0 || allRoutes[0].length < 2) return
     
-    // Determine agent count based on crowd density at starting location
-    let agentCount = 5; // Default value
-    
-    if (startLocationDensity) {
-      // Use the crowd density of the first point (starting location)
-      agentCount = calculateCrowdDensity(startLocationDensity);
-    }
-    
-    console.log(`Initializing ${agentCount} agents based on starting location density`);
-    
-    // Calculate agent speed based on route duration and distance
-    let baseSpeed = 0.2; // Default speed
-    
-    if (routeDuration > 0 && routeDistance > 0) {
-      // Calculate a speed that would complete the route in approximately the same time
-      // as the calculated route duration
-      const routeLength = routePoints.length;
-      // Convert duration from seconds to animation frames (60fps approximation)
-      const durationInFrames = routeDuration * 0.05; // Adjust multiplier for visualization speed
-      
-      // Speed = total segments to travel / frames to complete
-      baseSpeed = routeLength / durationInFrames;
-      
-      // Ensure speed is within a reasonable range for visualization
-      baseSpeed = Math.max(0.05, Math.min(baseSpeed, 0.8));
-      
-      console.log(`Calculated base agent speed: ${baseSpeed} based on route duration: ${routeDuration}s`);
-    }
-    
-    // Create initial agents with calculated speed
-    const newAgents = Array(agentCount).fill(0).map((_, i) => ({
-      id: `agent-${i}`,
-      position: routePoints[0],
-      progress: Math.random() * 5, // Stagger initial positions slightly
-      speed: baseSpeed * (0.8 + Math.random() * 0.4), // Add small random variation to base speed
-      color: ["#3388ff", "#ff3300", "#33cc33", "#ffcc00", "#cc33ff"][i % 5],
-    }))
+    // Distribute agents across all routes
+    const agentsPerRoute = Math.ceil(count / allRoutes.length)
+    const newAgents = allRoutes.flatMap((routePoints, routeIndex) => 
+      Array(agentsPerRoute).fill(0).map((_, i) => ({
+        id: `agent-${routeIndex}-${i}`,
+        position: routePoints[0],
+        progress: Math.random() * 5, // Stagger initial positions
+        speed: 0.2 + Math.random() * 0.3, // Different speeds
+        routeIndex, // Track which route this agent follows
+        color: [
+          "#0088ff", // Blue
+          "#ff3300", // Red
+          "#33cc33", // Green
+          "#ffcc00", // Yellow
+          "#cc33ff", // Purple
+          "#ff9966", // Orange
+          "#00ccff", // Cyan
+          "#ff66cc"  // Pink  
+        ][routeIndex % 8],
+      }))
+    )
     
     setAgents(newAgents)
     return newAgents
   }
 
-  // Animation function to move agents along route
+  // Animation function to move agents along their assigned routes
   const animateAgents = (timestamp) => {
-    const routePoints = routePointsRef.current
+    const allRoutes = routePointsRef.current
     
-    if (!isAnimating || routePoints.length < 2) {
+    if (!isAnimating || allRoutes.length === 0) {
       animationRef.current = null
       return
     }
     
     setAgents(currentAgents => {
       return currentAgents.map(agent => {
+        const routePoints = allRoutes[agent.routeIndex]
+        if (!routePoints || routePoints.length < 2) return agent
+
         // Update agent progress along route
         let newProgress = agent.progress + agent.speed
         
@@ -263,33 +228,22 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
   // Start/stop animation
   useEffect(() => {
     if (routeData && routeData.features && routeData.features[0] && mode === "crowd") {
-      // Wait for density data to be available before initializing agents
-      if (densityPoints.length > 0) {
-        // Use the first density point (starting location) to determine agent count
-        const startLocationDensity = densityPoints[0];
-        const initialAgents = initializeAgents(startLocationDensity);
-        if (initialAgents) {
-          setIsAnimating(true);
-        }
-      } else {
-        // If no density data yet, initialize with default values
-        const initialAgents = initializeAgents();
-        if (initialAgents) {
-          setIsAnimating(true);
-        }
+      const initialAgents = initializeAgents(5)
+      if (initialAgents) {
+        setIsAnimating(true)
       }
     } else {
-      setIsAnimating(false);
-      setAgents([]);
+      setIsAnimating(false)
+      setAgents([])
     }
     
     return () => {
       if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = null;
+        cancelAnimationFrame(animationRef.current)
+        animationRef.current = null
       }
     }
-  }, [routeData, mode, densityPoints]);
+  }, [routeData, mode])
   
   // Handle animation frame
   useEffect(() => {
@@ -308,49 +262,30 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
   // Fetch traffic density data when route changes
   useEffect(() => {
     const fetchDensity = async () => {
-      if (routeData && routeData.features && routeData.features[0]) {
-        const coords = routeData.features[0].geometry.coordinates
-        const sampledPoints = sampleRoutePoints(coords, 7)
-        try {
-          // Attempt to fetch real data from the API
-          const response = await fetch('/api/traffic/density', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ points: sampledPoints }),
-          });
+      if (routeData && routeData.features && routeData.features.length > 0) {
+        const allDensityPoints = []
+        
+        // Get density data for each route
+        for (const feature of routeData.features) {
+          const coords = feature.geometry.coordinates
+          const sampledPoints = sampleRoutePoints(coords, 7)
           
-          if (response.ok) {
-            const densityData = await response.json();
-            setDensityPoints(densityData);
-            setRouteAnimation((prev) => prev + 1);
-          } else {
-            console.warn("API response not OK, using mock data instead");
-            // Use mock data as fallback
-            const mockDensity = sampledPoints.map(([lat, lng]) => ({
-              lat,
-              lon: lng,
-              currentSpeed: Math.random() * 30,
-              freeFlowSpeed: Math.random() * 50 + 20,
-              confidence: Math.random().toFixed(2),
-            }))
-            setDensityPoints(mockDensity)
-            setRouteAnimation((prev) => prev + 1)
-          }
-        } catch (e) {
-          console.error("Error fetching density data:", e)
-          // Use mock data as fallback
+          // Mock data for demo purposes
           const mockDensity = sampledPoints.map(([lat, lng]) => ({
             lat,
             lon: lng,
             currentSpeed: Math.random() * 30,
             freeFlowSpeed: Math.random() * 50 + 20,
             confidence: Math.random().toFixed(2),
+            routeIndex: routeData.features.indexOf(feature)
           }))
-          setDensityPoints(mockDensity)
-          setRouteAnimation((prev) => prev + 1)
+          
+          allDensityPoints.push(...mockDensity)
         }
+        
+        setDensityPoints(allDensityPoints)
+        // Trigger route animation
+        setRouteAnimation((prev) => prev + 1)
       } else {
         setDensityPoints([])
       }
@@ -390,7 +325,6 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
                     <br />
                     <b>Confidence:</b> {pt.confidence ?? "N/A"}
                     <br />
-                    <b>Estimated Crowd:</b> {calculateCrowdDensity(pt)} people
                   </div>
                 </Popup>
               </Circle>
@@ -471,12 +405,6 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
               Lat: {startPoint[0].toFixed(5)}
               <br />
               Lng: {startPoint[1].toFixed(5)}
-              {densityPoints.length > 0 && (
-                <>
-                  <br />
-                  <b>Crowd Density:</b> {calculateCrowdDensity(densityPoints[0])} people
-                </>
-              )}
             </div>
           </Popup>
         </Marker>
@@ -499,31 +427,26 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
               Lat: {endPoint[0].toFixed(5)}
               <br />
               Lng: {endPoint[1].toFixed(5)}
-              {routeDuration > 0 && (
-                <>
-                  <br />
-                  <b>Trip Duration:</b> {Math.floor(routeDuration / 60)} min {Math.round(routeDuration % 60)} sec
-                  <br />
-                  <b>Distance:</b> {(routeDistance / 1000).toFixed(2)} km
-                </>
-              )}
             </div>
           </Popup>
         </Marker>
       )}
 
-      {routeData && routeAnimation > 0 && (
+      {routeData && routeAnimation > 0 && routeData.features.map((feature, index) => (
         <Polyline
-          positions={getRouteLatLngs()}
+          key={`route-${index}`}
+          positions={getRouteLatLngs(index)}
           pathOptions={{
-            color:
-              mode === "evacuate"
-                ? "#0088ff"
-                : mode === "defense"
-                  ? "#ff5500"
-                  : mode === "heatmap"
-                    ? "#ffcc00"
-                    : "#00ccff",
+            color: [
+              "#0088ff", // blue
+              "#ff5500", // orange
+              "#800080", // purple
+              "#123C45", // deep teal
+              "#33cc33", // green
+              "#FFD700", // gold
+              "#DC143C", // crimson
+              "#00CED1", // deep forest green
+            ][index % 8],
             weight: 5,
             opacity: 0.8,
             lineCap: "round",
@@ -531,8 +454,18 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
             dashArray: mode === "defense" ? "10, 10" : undefined,
           }}
           className="route-path"
-        />
-      )}
+        >
+          <Popup>
+            <div className="text-black">
+              <b>Evacuation Route {index + 1}</b>
+              <br />
+              Direction: {Math.floor(index * 45)}°
+              <br />
+              Status: Active
+            </div>
+          </Popup>
+        </Polyline>
+      ))}
 
       {/* Render animated agents */}
       {agents.map(agent => (
