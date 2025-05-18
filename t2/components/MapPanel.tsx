@@ -9,7 +9,7 @@ import { useMode } from "../context/mode-context"
 import { motion } from "framer-motion"
 import L from "leaflet"
 
-const defaultCenter = [40.7128, -74.006]
+const defaultCenter = [12.9517, 77.5936] // Jakarta coordinates
 const MAP_ID = "main-map"
 
 const MapPanel = (props) => {

@@ -73,7 +73,7 @@ const MapControls = ({ mapRef, setStartPoint, setEndPoint }) => {
   const handleResetView = () => {
     if (mapRef.current) {
       const map = mapRef.current
-      map.setView([40.7128, -74.006], 13)
+      map.setView([12.9517, 77.5936], 13) // Bangalore coordinates
     }
   }
 

@@ -117,9 +117,9 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
 
   const handleDrawDeleted = (e: any) => {
     setBlockages([])
-    toast.info("Obstacles Cleared", {
-      description: "All obstacles have been removed from the map.",
-    })
+    if (drawnItemsRef.current) {
+      drawnItemsRef.current.clearLayers()
+    }
   }
 
   const toLatLngs = (coords: [number, number][]) => coords.map(([lat, lng]) => [lat, lng] as LatLngExpression)
@@ -147,6 +147,11 @@ const MapView = ({ routeData, blockages, setBlockages, startPoint, endPoint, set
     routePointsRef.current = allRoutes
     
     if (allRoutes.length === 0 || allRoutes[0].length < 2) return
+    
+    // Reset animation when switching to crowd mode
+    if (mode === 'crowd') {
+      setIsAnimating(true)
+    }
     
     // Distribute agents across all routes
     const agentsPerRoute = Math.ceil(count / allRoutes.length)

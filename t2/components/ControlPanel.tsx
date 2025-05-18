@@ -172,7 +172,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       });
       return;
     }
-  
+    
+    // Clear the destination point when using Quick Evac
+    setEndPoint(null);
     setLoading(true);
     try {
       const destinations = calculateDestinations(startPoint);
