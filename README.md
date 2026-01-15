@@ -20,7 +20,7 @@ This project is a disaster management web application that helps plan optimal ev
 
 # Tech Stack
 
-Frontend: Leaflet.js, HTML/CSS, JavaScript
+Frontend: React, Leaflet.js
 
 Backend: Python (FastAPI)
 
